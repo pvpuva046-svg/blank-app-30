@@ -107,7 +107,7 @@ st.divider()
 
 # --- SIMULTANEOUS DISPLAY (Tabs for Clarity) ---
 tab1, tab2 = st.tabs(["📊 Live Analysis", "🛡 Measurement Registry"])
-[29/4/2026 12:47 AM] puvanan: with tab1:
+with tab1:
     c1, c2 = st.columns([1, 2])
     with c1:
         st.subheader("Raw Data Table")
