@@ -89,17 +89,47 @@ def check_rigorous_consistency(df):
     
     return pd.DataFrame(registry)
 
+# Run the data consistency check on the *entire* raw dataset to maintain an absolute baseline
 registry_df = check_rigorous_consistency(data)
 
-# --- SIDEBAR & AGGREGATES ---
+# --- SIDEBAR & GLOBAL FILTERS ---
 st.sidebar.header("Dashboard Controls")
+
+# 1. Continent Filter
+all_continents = sorted(data['Continent'].dropna().unique())
+selected_continents = st.sidebar.multiselect("Select Continents", options=all_continents, default=[])
+
+# Dynamically filter available countries based on continent selection
+if selected_continents:
+    filtered_by_continent = data[data['Continent'].isin(selected_continents)]
+else:
+    filtered_by_continent = data
+
+# 2. Country Filter
+all_countries = sorted(filtered_by_continent['ISO_Country_Code'].dropna().unique())
+selected_countries = st.sidebar.multiselect("Select Country Codes (ISO)", options=all_countries, default=[])
+
+# 3. Price Filter
 max_price = st.sidebar.slider("Chart Filter: Max Price ($)", 0.0, float(data['Price_USD'].max()), 50.0)
 
-# Main Title & Metrics
+# --- APPLY SIDEBAR FILTERS TO DATASET ---
+filtered_data = data.copy()
+if selected_continents:
+    filtered_data = filtered_data[filtered_data['Continent'].isin(selected_continents)]
+if selected_countries:
+    filtered_data = filtered_data[filtered_data['ISO_Country_Code'].isin(selected_countries)]
+
+# --- MAIN TITLE & METRICS ---
 st.title("F&B Global Command Center")
 m1, m2, m3, m4 = st.columns(4)
-m1.metric("Rows Scanned", f"{len(data):,}")
-m2.metric("Avg Price", f"${data['Price_USD'].mean():.2f}")
+m1.metric("Rows Scanned", f"{len(filtered_data):,}")
+
+# Handle potential empty dataframe edge cases gracefully
+if not filtered_data.empty:
+    m2.metric("Avg Price", f"${filtered_data['Price_USD'].mean():.2f}")
+else:
+    m2.metric("Avg Price", "$0.00")
+
 m3.metric("Data Consistency", f"{registry_df['Score (%)'].mean():.1f}%")
 m4.metric("Failed Rules", len(registry_df[registry_df["Status"] == "❌ FAILED"]))
 
@@ -108,30 +138,40 @@ st.divider()
 # --- SIMULTANEOUS DISPLAY (Tabs for Clarity) ---
 tab1, tab2 = st.tabs(["📊 Live Analysis", "🛡 Measurement Registry"])
 with tab1:
-    c1, c2 = st.columns([1, 2])
-    with c1:
-        st.subheader("Raw Data Table")
-        st.dataframe(data, height=600)
-    with c2:
-        st.subheader("Visual Trends")
-        # Bar Chart
-        filtered_bar = data[data['Price_USD'] <= max_price]
-        bar = alt.Chart(filtered_bar).mark_bar().encode(
-            x=alt.X('Item_Key', sort='-y', title="Item ID"),
-            y=alt.Y('Price_USD', title="Price (USD)"),
-            color=alt.Color('Price_USD', scale=alt.Scale(scheme='viridis')),
-            tooltip=['Item', 'Price_USD', 'City']
-        ).properties(height=280)
-        
-        # Line Chart
-        line = alt.Chart(data).mark_line(point=True).encode(
-            x=alt.X('Month', title="Timeline"),
-            y=alt.Y('mean(Price_USD)', title="Avg Price"),
-            color=alt.value("#FFA500")
-        ).properties(height=280)
-        
-        st.altair_chart(bar, use_container_width=True)
-        st.altair_chart(line, use_container_width=True)
+    if filtered_data.empty:
+        st.warning("No data available for the current filter selection. Please adjust your sidebar filters.")
+    else:
+        c1, c2 = st.columns([1, 2])
+        with c1:
+            st.subheader("Raw Data Table")
+            st.dataframe(filtered_data, height=600)
+        with c2:
+            st.subheader("Visual Trends")
+            
+            # Apply slider filter on top of the continent/country filtered data
+            chart_data = filtered_data[filtered_data['Price_USD'] <= max_price]
+            
+            if chart_data.empty:
+                st.info("No items match the chosen Max Price range.")
+            else:
+                # Bar Chart
+                bar = alt.Chart(chart_data).mark_bar().encode(
+                    x=alt.X('Item_Key', sort='-y', title="Item ID"),
+                    y=alt.Y('Price_USD', title="Price (USD)"),
+                    color=alt.Color('Price_USD', scale=alt.Scale(scheme='viridis')),
+                    tooltip=['Item', 'Price_USD', 'City', 'ISO_Country_Code']
+                ).properties(height=280)
+                
+                # Line Chart (Uses filtered_data to preserve complete monthly timeline trends)
+                line = alt.Chart(filtered_data).mark_line(point=True).encode(
+                    x=alt.X('Month', title="Timeline"),
+                    y=alt.Y('mean(Price_USD)', title="Avg Price"),
+                    color=alt.value("#FFA500"),
+                    tooltip=['Month', 'mean(Price_USD)']
+                ).properties(height=280)
+                
+                st.altair_chart(bar, use_container_width=True)
+                st.altair_chart(line, use_container_width=True)
 
 with tab2:
     st.subheader("Registry: Consistency Dimension")
